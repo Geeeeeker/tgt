@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'              # 推送 v1.0.97 这类标签时触发
-  workflow_dispatch:       # 也支持在 Actions 页面手动触发
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -13,13 +13,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (for aarch64 emulation)
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Build and package inside Termux container
         id: build
         run: |
-          # 启动临时的 aarch64 Termux 容器，挂载当前工作目录
           docker run --rm \
             --platform linux/arm64 \
             -v ${{ github.workspace }}:/workspace \
@@ -27,17 +26,15 @@ jobs:
             termux/termux-docker:aarch64 \
             bash -c '
               set -e
-              # 更新源并安装编译工具
               pkg update -y
-              pkg install -y make clang openssl openssl-dev binutils dpkg
 
-              # 禁用 Termux 不支持的驱动
+              # 修正：openssl-dev 已废弃，只需 openssl
+              pkg install -y make clang openssl binutils dpkg
+
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 安装到临时目录
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 构造 DEBIAN 控制文件
               mkdir -p install-root/DEBIAN
               VERSION=$(grep "^VERSION ?=" Makefile | cut -d "=" -f2 | tr -d " ")
               cat > install-root/DEBIAN/control << EOF
@@ -52,9 +49,7 @@ jobs:
           Priority: optional
           EOF
 
-              # 打包成 .deb
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
-              # 将 .deb 拷贝回宿主机可见目录（/workspace）
               cp tgt_*.deb /workspace/
             '
 
