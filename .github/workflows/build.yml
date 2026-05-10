@@ -14,15 +14,17 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Build and package inside Termux container
+        env:
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
         run: |
-          # 创建输出目录并开放权限，确保容器内普通用户可写
           mkdir -p ${{ runner.temp }}/output
           chmod 777 ${{ runner.temp }}/output
 
           docker run \
             --platform linux/arm64 \
-            -e GITHUB_REPOSITORY \
-            -e GITHUB_REF_NAME \
+            -e REPO \
+            -e REF \
             -v ${{ runner.temp }}/output:/output \
             termux/termux-docker:aarch64 \
             bash -c '
@@ -31,12 +33,11 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 克隆到有写入权限的家目录
-              git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
-                "https://github.com/${GITHUB_REPOSITORY}.git" ~/workspace
+              # 使用传入的变量，克隆对应仓库和标签
+              git clone --depth 1 --branch "${REF}" \
+                "https://github.com/${REPO}.git" ~/workspace
               cd ~/workspace
 
-              # 编译（禁用不支持的驱动）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
