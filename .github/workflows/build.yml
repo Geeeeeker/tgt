@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'              # 推送 v* 标签触发
-  workflow_dispatch:       # 支持手动触发
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -28,7 +28,7 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 创建 sys/sem.h 桩头文件（不定义 union semun）
+              # 创建缺失的 sys/sem.h 桩头文件（不定义 union semun）
               mkdir -p /data/data/com.termux/files/usr/include/sys
               echo "#ifndef _SYS_SEM_H_" > /data/data/com.termux/files/usr/include/sys/sem.h
               echo "#define _SYS_SEM_H_" >> /data/data/com.termux/files/usr/include/sys/sem.h
@@ -44,16 +44,18 @@ jobs:
               echo "static inline int semctl(int semid, int semnum, int cmd, ...) { return -1; }" >> /data/data/com.termux/files/usr/include/sys/sem.h
               echo "#endif" >> /data/data/com.termux/files/usr/include/sys/sem.h
 
-              # 克隆仓库并进入
+              # 克隆仓库
               git clone --depth 1 --branch "${{ github.ref_name }}" \
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
-              # 修复 Termux 兼容性问题：
-              # 1. 移除 -Werror，避免未使用函数的警告升级为错误
-              sed -i 's/-Werror//g' usr/Makefile
-              # 2. 为 iscsi/iscsid.c 添加缺失的头文件，解决 sockaddr_in 类型不完整
-              sed -i '1i #include <netinet/in.h>' usr/iscsi/iscsid.c
+              # 移除 -Werror，避免未使用函数导致构建失败
+              sed -i "s/-Werror//g" usr/Makefile
+
+              # 修复 iscsid.c 缺少 netinet/in.h 的问题（用 cat 插入头文件，通用性更好）
+              echo "#include <netinet/in.h>" > /tmp/header.txt
+              cat /tmp/header.txt usr/iscsi/iscsid.c > /tmp/iscsid_new.c
+              mv /tmp/iscsid_new.c usr/iscsi/iscsid.c
 
               # 编译（禁用 Termux 不支持的驱动模块）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
