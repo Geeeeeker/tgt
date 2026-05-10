@@ -10,25 +10,30 @@ jobs:
   build-and-release:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Build and package inside Termux container
-        id: build
         run: |
-          docker run --rm \
+          # 创建一个临时目录用于接收 .deb 文件
+          mkdir -p ${{ runner.temp }}/output
+
+          docker run \
             --platform linux/arm64 \
-            -v ${{ github.workspace }}:/workspace \
-            -w /workspace \
-            --user root \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_REF_NAME \
+            -v ${{ runner.temp }}/output:/output \
             termux/termux-docker:aarch64 \
             bash -c '
               set -e
+
               pkg update -y
-              pkg install -y make clang openssl binutils dpkg
+              pkg install -y make clang openssl binutils dpkg git
+
+              # 克隆仓库并检出当前标签
+              git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
+                "https://github.com/${GITHUB_REPOSITORY}.git" /workspace
+              cd /workspace
 
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
@@ -49,12 +54,13 @@ jobs:
           EOF
 
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
-              cp tgt_*.deb /workspace/
+              # 将生成的 .deb 复制到挂载的输出目录
+              cp tgt_*.deb /output/
             '
 
       - name: Upload .deb to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: tgt_*.deb
+          files: ${{ runner.temp }}/output/tgt_*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
