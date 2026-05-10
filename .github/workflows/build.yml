@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch:
+      - 'v*'              # 推送 v* 标签触发
+  workflow_dispatch:       # 支持手动触发
 
 jobs:
   build-and-release:
@@ -28,7 +28,7 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 创建缺失的 sys/sem.h 桩头文件（不定义 union semun）
+              # 创建 sys/sem.h 桩头文件（不定义 union semun）
               mkdir -p /data/data/com.termux/files/usr/include/sys
               echo "#ifndef _SYS_SEM_H_" > /data/data/com.termux/files/usr/include/sys/sem.h
               echo "#define _SYS_SEM_H_" >> /data/data/com.termux/files/usr/include/sys/sem.h
@@ -44,23 +44,23 @@ jobs:
               echo "static inline int semctl(int semid, int semnum, int cmd, ...) { return -1; }" >> /data/data/com.termux/files/usr/include/sys/sem.h
               echo "#endif" >> /data/data/com.termux/files/usr/include/sys/sem.h
 
-              # 克隆仓库
+              # 克隆仓库并进入
               git clone --depth 1 --branch "${{ github.ref_name }}" \
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
-              # 移除 -Werror，避免未使用函数导致构建失败
+              # 移除 -Werror，避免未使用函数的警告升级为错误
               sed -i "s/-Werror//g" usr/Makefile
 
-              # 修复 iscsid.c 缺少 netinet/in.h 的问题（用 cat 插入头文件，通用性更好）
-              echo "#include <netinet/in.h>" > /tmp/header.txt
-              cat /tmp/header.txt usr/iscsi/iscsid.c > /tmp/iscsid_new.c
-              mv /tmp/iscsid_new.c usr/iscsi/iscsid.c
+              # 修复 iscsid.c 缺少 netinet/in.h 的问题（用家目录存放临时文件，确保目录存在）
+              echo "#include <netinet/in.h>" > ~/header.txt
+              cat ~/header.txt usr/iscsi/iscsid.c > ~/iscsid_new.c
+              mv ~/iscsid_new.c usr/iscsi/iscsid.c
 
-              # 编译（禁用 Termux 不支持的驱动模块）
+              # 编译（禁用不支持的驱动）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 安装到临时目录
+              # 安装到临时根目录
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
               # 创建 DEBIAN 控制文件
