@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'              # 推送 v1.0.97 这类标签时触发
-  workflow_dispatch:       # 支持手动触发
+      - 'v*'              # 推送 v* 标签触发
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -15,7 +15,6 @@ jobs:
 
       - name: Build and package inside Termux container
         run: |
-          # 创建输出目录并开放全权限，方便容器内普通用户写入
           mkdir -p ${{ runner.temp }}/output
           chmod 777 ${{ runner.temp }}/output
 
@@ -29,18 +28,42 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 直接使用 GitHub Actions 上下文变量（自动替换为实际值）
+              # 创建桩头文件，弥补 Termux 缺失的 sys/sem.h
+              mkdir -p /data/data/com.termux/files/usr/include/sys
+              cat > /data/data/com.termux/files/usr/include/sys/sem.h << "EOF"
+              #ifndef _SYS_SEM_H_
+              #define _SYS_SEM_H_
+              #include <sys/types.h>
+              #include <sys/ipc.h>
+
+              struct sembuf {
+                  unsigned short sem_num;
+                  short sem_op;
+                  short sem_flg;
+              };
+
+              union semun {
+                  int val;
+                  struct semid_ds *buf;
+                  unsigned short *array;
+              };
+
+              static inline int semget(key_t key, int nsems, int semflg) { return -1; }
+              static inline int semop(int semid, struct sembuf *sops, size_t nsops) { return -1; }
+              static inline int semctl(int semid, int semnum, int cmd, ...) { return -1; }
+              #endif
+              EOF
+
+              # 克隆仓库
               git clone --depth 1 --branch "${{ github.ref_name }}" \
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
-              # 编译，禁用 Termux 不支持的驱动模块
+              # 编译（禁用 Termux 不支持的驱动模块）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 安装到临时根目录
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 构造 .deb 控制文件
               mkdir -p install-root/DEBIAN
               VERSION=$(grep "^VERSION ?=" Makefile | cut -d "=" -f2 | tr -d " ")
               cat > install-root/DEBIAN/control << EOF
@@ -55,7 +78,6 @@ jobs:
           Priority: optional
           EOF
 
-              # 打包并复制到挂载的输出目录
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
               cp tgt_*.deb /output/
             '
