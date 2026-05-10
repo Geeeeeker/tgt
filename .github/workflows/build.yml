@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'              # 推送 v 开头的标签时触发
-  workflow_dispatch:       # 支持手动触发
+      - 'v*'              # 推送 v* 标签触发
+  workflow_dispatch:       # 手动运行
 
 jobs:
   build-and-release:
@@ -28,7 +28,7 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 创建缺失的 sys/sem.h 桩头文件（使用 echo 避免 heredoc 缩进问题）
+              # 创建缺失的 sys/sem.h 桩头文件（不定义 union semun，避免与源码 log.h 冲突）
               mkdir -p /data/data/com.termux/files/usr/include/sys
               echo "#ifndef _SYS_SEM_H_" > /data/data/com.termux/files/usr/include/sys/sem.h
               echo "#define _SYS_SEM_H_" >> /data/data/com.termux/files/usr/include/sys/sem.h
@@ -39,11 +39,7 @@ jobs:
               echo "    short sem_op;" >> /data/data/com.termux/files/usr/include/sys/sem.h
               echo "    short sem_flg;" >> /data/data/com.termux/files/usr/include/sys/sem.h
               echo "};" >> /data/data/com.termux/files/usr/include/sys/sem.h
-              echo "union semun {" >> /data/data/com.termux/files/usr/include/sys/sem.h
-              echo "    int val;" >> /data/data/com.termux/files/usr/include/sys/sem.h
-              echo "    struct semid_ds *buf;" >> /data/data/com.termux/files/usr/include/sys/sem.h
-              echo "    unsigned short *array;" >> /data/data/com.termux/files/usr/include/sys/sem.h
-              echo "};" >> /data/data/com.termux/files/usr/include/sys/sem.h
+              # 注意：不提供 union semun，让源码自行定义
               echo "static inline int semget(key_t key, int nsems, int semflg) { return -1; }" >> /data/data/com.termux/files/usr/include/sys/sem.h
               echo "static inline int semop(int semid, struct sembuf *sops, size_t nsops) { return -1; }" >> /data/data/com.termux/files/usr/include/sys/sem.h
               echo "static inline int semctl(int semid, int semnum, int cmd, ...) { return -1; }" >> /data/data/com.termux/files/usr/include/sys/sem.h
@@ -54,16 +50,15 @@ jobs:
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
-              # 编译（禁用不支持的驱动）
+              # 编译（禁用 Termux 不支持的驱动）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 安装到临时根目录
+              # 安装到临时目录
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
-              # 创建 DEBIAN 控制文件（也使用 echo）
+              # 创建 .deb 控制文件
               mkdir -p install-root/DEBIAN
               VERSION=$(grep "^VERSION ?=" Makefile | cut -d "=" -f2 | tr -d " ")
-
               echo "Package: tgt" > install-root/DEBIAN/control
               echo "Version: ${VERSION:-1.0.97}" >> install-root/DEBIAN/control
               echo "Architecture: aarch64" >> install-root/DEBIAN/control
@@ -74,7 +69,7 @@ jobs:
               echo "Section: net" >> install-root/DEBIAN/control
               echo "Priority: optional" >> install-root/DEBIAN/control
 
-              # 打包并复制到输出目录
+              # 打包并复制输出
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
               cp tgt_*.deb /output/
             '
