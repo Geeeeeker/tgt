@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch:
+      - 'v*'              # 推送 v1.0.97 这类标签时触发
+  workflow_dispatch:       # 支持手动触发
 
 jobs:
   build-and-release:
@@ -14,17 +14,13 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Build and package inside Termux container
-        env:
-          REPO: ${{ github.repository }}
-          REF: ${{ github.ref_name }}
         run: |
+          # 创建输出目录并开放全权限，方便容器内普通用户写入
           mkdir -p ${{ runner.temp }}/output
           chmod 777 ${{ runner.temp }}/output
 
           docker run \
             --platform linux/arm64 \
-            -e REPO \
-            -e REF \
             -v ${{ runner.temp }}/output:/output \
             termux/termux-docker:aarch64 \
             bash -c '
@@ -33,15 +29,18 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 使用传入的变量，克隆对应仓库和标签
-              git clone --depth 1 --branch "${REF}" \
-                "https://github.com/${REPO}.git" ~/workspace
+              # 直接使用 GitHub Actions 上下文变量（自动替换为实际值）
+              git clone --depth 1 --branch "${{ github.ref_name }}" \
+                "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
+              # 编译，禁用 Termux 不支持的驱动模块
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
+              # 安装到临时根目录
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
+              # 构造 .deb 控制文件
               mkdir -p install-root/DEBIAN
               VERSION=$(grep "^VERSION ?=" Makefile | cut -d "=" -f2 | tr -d " ")
               cat > install-root/DEBIAN/control << EOF
@@ -56,6 +55,7 @@ jobs:
           Priority: optional
           EOF
 
+              # 打包并复制到挂载的输出目录
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
               cp tgt_*.deb /output/
             '
