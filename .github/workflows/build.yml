@@ -1,0 +1,53 @@
+name: Build and Release for Termux
+
+on:
+  push:
+    tags:
+      - 'v*'            # 推送 v 开头的标签时触发，如 v1.0.97
+  workflow_dispatch:     # 支持手动触发
+
+jobs:
+  build-termux:
+    name: Build tgt for Termux (aarch64)
+    runs-on: ubuntu-22.04
+    container:
+      image: termux/termux-docker:aarch64   # 官方 Termux 容器，运行实际编译
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          pkg update -y
+          pkg install -y make clang openssl openssl-dev binutils
+
+      - name: Build tgt
+        run: |
+          # 禁用 Termux 下暂不支持的特性
+          make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
+
+      - name: Prepare .deb package
+        run: |
+          # 安装到临时根目录
+          make install DESTDIR=$PWD/install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
+          mkdir -p install-root/DEBIAN
+          VERSION=$(grep '^VERSION ?=' Makefile | cut -d '=' -f2 | tr -d ' ')
+          cat > install-root/DEBIAN/control << EOF
+          Package: tgt
+          Version: ${VERSION:-1.0.97}
+          Architecture: aarch64
+          Maintainer: Your Name <you@example.com>
+          Description: Linux SCSI target framework (tgt) for Termux
+           Includes tgtd and tgtadm.
+          Depends: openssl
+          Section: net
+          Priority: optional
+          EOF
+          dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
+
+      - name: Upload .deb to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tgt_*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
