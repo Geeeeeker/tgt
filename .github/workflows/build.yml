@@ -3,7 +3,7 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'              # 推送 v 开头的标签触发
+      - 'v*'              # 推送 v* 标签触发
   workflow_dispatch:       # 支持手动触发
 
 jobs:
@@ -49,10 +49,13 @@ jobs:
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
-              # 移除 -Werror，避免 Clang 未使用函数警告导致编译失败
+              # 修复 Termux 兼容性问题：
+              # 1. 移除 -Werror，避免未使用函数的警告升级为错误
               sed -i 's/-Werror//g' usr/Makefile
+              # 2. 为 iscsi/iscsid.c 添加缺失的头文件，解决 sockaddr_in 类型不完整
+              sed -i '1i #include <netinet/in.h>' usr/iscsi/iscsid.c
 
-              # 编译（禁用不支持的驱动）
+              # 编译（禁用 Termux 不支持的驱动模块）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
               # 安装到临时目录
