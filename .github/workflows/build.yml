@@ -15,7 +15,9 @@ jobs:
 
       - name: Build and package inside Termux container
         run: |
+          # 创建输出目录并开放权限，确保容器内普通用户可写
           mkdir -p ${{ runner.temp }}/output
+          chmod 777 ${{ runner.temp }}/output
 
           docker run \
             --platform linux/arm64 \
@@ -29,11 +31,12 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 克隆到 /tmp 下，避免权限问题
+              # 克隆到有写入权限的家目录
               git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
-                "https://github.com/${GITHUB_REPOSITORY}.git" /tmp/workspace
-              cd /tmp/workspace
+                "https://github.com/${GITHUB_REPOSITORY}.git" ~/workspace
+              cd ~/workspace
 
+              # 编译（禁用不支持的驱动）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
