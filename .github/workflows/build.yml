@@ -3,8 +3,8 @@ name: Build tgt for Termux and Release
 on:
   push:
     tags:
-      - 'v*'              # 推送 v* 标签触发
-  workflow_dispatch:       # 支持手动触发
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -49,13 +49,30 @@ jobs:
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
-              # 移除 -Werror，避免未使用函数的警告升级为错误
+              # 1. 移除 -Werror
               sed -i "s/-Werror//g" usr/Makefile
 
-              # 修复 iscsid.c 缺少 netinet/in.h 的问题（用家目录存放临时文件，确保目录存在）
-              echo "#include <netinet/in.h>" > ~/header.txt
-              cat ~/header.txt usr/iscsi/iscsid.c > ~/iscsid_new.c
+              # 2. 修复 iscsid.c 缺少 netinet/in.h
+              echo "#include <netinet/in.h>" > ~/head_iscsid.txt
+              cat ~/head_iscsid.txt usr/iscsi/iscsid.c > ~/iscsid_new.c
               mv ~/iscsid_new.c usr/iscsi/iscsid.c
+
+              # 3. 修复 chap.c 缺少 getrandom（提供兼容实现）
+              cat > ~/head_chap.txt << "EOF"
+              #ifndef getrandom
+              #include <fcntl.h>
+              #include <unistd.h>
+              static int getrandom(void *buf, size_t buflen, unsigned int flags) {
+                  int fd = open("/dev/urandom", O_RDONLY);
+                  if (fd < 0) return -1;
+                  ssize_t ret = read(fd, buf, buflen);
+                  close(fd);
+                  return ret;
+              }
+              #endif
+              EOF
+              cat ~/head_chap.txt usr/iscsi/chap.c > ~/chap_new.c
+              mv ~/chap_new.c usr/iscsi/chap.c
 
               # 编译（禁用不支持的驱动）
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
