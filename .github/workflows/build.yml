@@ -15,7 +15,6 @@ jobs:
 
       - name: Build and package inside Termux container
         run: |
-          # 创建一个临时目录用于接收 .deb 文件
           mkdir -p ${{ runner.temp }}/output
 
           docker run \
@@ -30,10 +29,10 @@ jobs:
               pkg update -y
               pkg install -y make clang openssl binutils dpkg git
 
-              # 克隆仓库并检出当前标签
+              # 克隆到 /tmp 下，避免权限问题
               git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
-                "https://github.com/${GITHUB_REPOSITORY}.git" /workspace
-              cd /workspace
+                "https://github.com/${GITHUB_REPOSITORY}.git" /tmp/workspace
+              cd /tmp/workspace
 
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
@@ -54,7 +53,6 @@ jobs:
           EOF
 
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
-              # 将生成的 .deb 复制到挂载的输出目录
               cp tgt_*.deb /output/
             '
 
