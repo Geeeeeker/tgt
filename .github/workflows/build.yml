@@ -23,12 +23,11 @@ jobs:
             --platform linux/arm64 \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
+            --user root \
             termux/termux-docker:aarch64 \
             bash -c '
               set -e
               pkg update -y
-
-              # 修正：openssl-dev 已废弃，只需 openssl
               pkg install -y make clang openssl binutils dpkg
 
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
