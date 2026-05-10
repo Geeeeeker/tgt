@@ -85,27 +85,32 @@ jobs:
               echo "#endif" >> /data/data/com.termux/files/usr/include/sys/shm.h
 
               # ==============================================
-              # 3. 克隆 tgt 仓库
+              # 3. 创建 pthread 兼容头文件（全局修复 pthread_cancel）
+              # ==============================================
+              echo "#define pthread_cancel(thread) do {} while (0)" > /tmp/termux_pthread.h
+
+              # ==============================================
+              # 4. 克隆 tgt 仓库
               # ==============================================
               git clone --depth 1 --branch "${{ github.ref_name }}" \
                 "https://github.com/${{ github.repository }}.git" ~/workspace
               cd ~/workspace
 
               # ==============================================
-              # 4. 移除 -Werror（避免未使用函数导致编译失败）
+              # 5. 源码兼容性修补
               # ==============================================
+              # 5a. 移除 -Werror，避免未使用函数导致编译失败
               sed -i "s/-Werror//g" usr/Makefile
 
-              # ==============================================
-              # 5. 修复 iscsid.c 缺少 netinet/in.h
-              # ==============================================
+              # 5b. 在 CFLAGS 中强制包含 pthread 兼容头文件（修复 pthread_cancel）
+              sed -i "s/-I\./-include \/tmp\/termux_pthread.h -I./" usr/Makefile
+
+              # 5c. 修复 iscsid.c 缺少 netinet/in.h
               echo "#include <netinet/in.h>" > ~/head_iscsid.txt
               cat ~/head_iscsid.txt usr/iscsi/iscsid.c > ~/iscsid_new.c
               mv ~/iscsid_new.c usr/iscsi/iscsid.c
 
-              # ==============================================
-              # 6. 修复 chap.c 缺少 getrandom
-              # ==============================================
+              # 5d. 修复 chap.c 缺少 getrandom
               echo "#ifndef getrandom" > ~/head_chap.txt
               echo "#include <fcntl.h>" >> ~/head_chap.txt
               echo "#include <unistd.h>" >> ~/head_chap.txt
@@ -122,17 +127,17 @@ jobs:
               mv ~/chap_new.c usr/iscsi/chap.c
 
               # ==============================================
-              # 7. 编译（禁用 Termux 不支持的驱动模块）
+              # 6. 编译（禁用 Termux 不支持的驱动模块）
               # ==============================================
               make ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
               # ==============================================
-              # 8. 安装到临时根目录
+              # 7. 安装到临时根目录
               # ==============================================
               make install DESTDIR=install-root ISCSI_RDMA= CEPH_RBD= GLFS_BD= SD_NOTIFY=
 
               # ==============================================
-              # 9. 创建 DEBIAN 控制文件
+              # 8. 创建 DEBIAN 控制文件
               # ==============================================
               mkdir -p install-root/DEBIAN
               VERSION=$(grep "^VERSION ?=" Makefile | cut -d "=" -f2 | tr -d " ")
@@ -147,7 +152,7 @@ jobs:
               echo "Priority: optional" >> install-root/DEBIAN/control
 
               # ==============================================
-              # 10. 打包并复制到输出目录
+              # 9. 打包并复制到输出目录
               # ==============================================
               dpkg-deb --build install-root tgt_${VERSION}_aarch64.deb
               cp tgt_*.deb /output/
